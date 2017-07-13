@@ -1,0 +1,130 @@
+#-*- coding:utf-8 -*-
+
+
+import urllib
+import urllib2
+import re  
+from  lxml import etree
+import requests
+import json
+import pandas as pd
+import csv
+import codecs
+import threading
+import  sys
+import MySQLdb  as db
+import random
+
+headers={
+    "User-Agent":"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.98 Safari/537.36"
+}
+
+ 
+#网站西刺的ip数据
+def Takesiteip(page):
+    url='http://www.xicidaili.com/nn/'+str(page)
+    res=requests.get(url,headers=headers).text
+    tr=etree.HTML(res)
+    td=tr.xpath('//table[@id="ip_list"]/tr')
+    ip_list=[]
+    for t in td[1:]:
+        ip_type = t.xpath('td[6]/text()')[0].strip()
+        if "HTTP"==ip_type:#判断类型HTTP
+            speed=t.xpath('td[7]/div/@title')[0].strip()[:-1]
+            if float(speed) < 5:#判断速度小于5秒的
+                td1=t.xpath('td[2]/text()')[0].strip()
+                td2=t.xpath('td[3]/text()')[0].strip()
+                ip=td1+':'+td2
+                ip_list.append(ip)
+    d_ip = detection(map(lambda x:x.strip(),ip_list))
+    return  d_ip
+        
+#保存到数据库中      
+def storagemsqlip(iplist):
+    conn=db.connect(user='root',db='ip',passwd='123456',host='localhost')
+    cur=conn.cursor()
+    # cur.execute("truncate table http")#插入数据前先要清空数据
+    for ip in iplist:
+        try:
+            cur.execute("insert into http(ipname) values('%s')"%ip)#插入ip
+        except Exception,e:
+             print 'Insert ip Error ',e
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return True
+
+#我创建了一个全局变量接受可以用的代理ip
+ip_good=[]
+def urlgetcode(url,ip):
+    global ip_good
+    ips=ip.strip().split("\t")[0]
+    proxy_temp = {"http":"http://"+ips}
+    try:
+        res=urllib.urlopen(url,proxies=proxy_temp)
+        #检测代理ip是否可用，当getcode（）等于200的时候说明请求的这个网址是成功的
+        #然后再将可用的ip添加到ip_good中
+        if res.getcode()==200:
+            print ips+'可用'
+            ip_good.append(ips)
+    except Exception , e:
+        print '代理'+str(ips)+'不可用...mistake(%s)'%str(e)
+    
+
+
+
+#检测获取到的ip是否可用
+def detection(iplist):
+    tab=[]
+    print len(iplist)
+    url='http://www.zxauto.com.cn/service/salenet.asp?act=search'
+    for ip in iplist:
+    #我用了多线程，每个ip为一个线程
+        t=threading.Thread(target=urlgetcode,args=(url,ip))
+        t.setDaemon(True)
+        tab.append(t)
+        # print 'run tab %d'%len(tab)
+    for ss in tab:
+        ss.start()
+    for j in tab:
+        j.join()
+      # ip_good
+     #    try:
+     #        res=requests.get(url,headers=headers,proxies=proxy_temp)
+     #        if res.status_code==200:
+     #            ip_pookl.append(ip)
+     #    except Exception , e:
+     #        print e
+     
+
+#读取数据库中的eip
+def takemysqlip():
+    con=db.connect(user='root',passwd='123456',db='ip',host='localhost')
+    cur=con.cursor()
+    cur.execute("select ipname from http")
+    records=cur.fetchall()
+    ip_list=[]
+    for x in records:
+        for r in x:
+            ip_list.append(r)
+    con.commit()
+    cur.close()
+    con.close()
+    return ip_list
+
+
+
+def main():
+    global ip_good
+    for page in ranges(1,5)#我爬了五页的代理ip
+        iplist=Takesiteip(page)
+        print ip_good#上面我已经定义了这个全局变量将这个里面的ip去重保存到数据库中
+        https=list(set(ip_good))
+        storagemsqlip(map(lambda x:x.strip(),https))
+    
+
+    
+
+if __name__ == '__main__':
+    main()
